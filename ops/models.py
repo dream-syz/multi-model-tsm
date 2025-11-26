@@ -13,7 +13,7 @@ class TSN(nn.Module):
                  dropout=0.8, img_feature_dim=256,
                  crop_num=1, partial_bn=True, print_spec=True, pretrain='imagenet',
                  is_shift=False, shift_div=8, shift_place='blockres', fc_lr5=False,
-                 temporal_pool=False, non_local=False):
+                 temporal_pool=False, non_local=False, fusion_type='avg'):
         super(TSN, self).__init__()
         self.modality = modality
         self.num_segments = num_segments
@@ -32,12 +32,28 @@ class TSN(nn.Module):
         self.fc_lr5 = fc_lr5
         self.temporal_pool = temporal_pool
         self.non_local = non_local
+        self.fusion_type = fusion_type  # 'avg', 'learned', 'attention'
+        
+        # 为RTD模态添加可学习的融合权重
+        if self.modality == 'RTD':
+            if fusion_type == 'learned':
+                # 可学习的融合权重（初始化为均等）
+                self.fusion_weights = nn.Parameter(torch.ones(3) / 3.0)
+            elif fusion_type == 'attention':
+                # 注意力融合机制
+                self.attention_fc = nn.Sequential(
+                    nn.Linear(num_class * 3, 128),
+                    nn.ReLU(inplace=True),
+                    nn.Dropout(0.5),
+                    nn.Linear(128, 3),
+                    nn.Softmax(dim=1)
+                )
 
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
 
         if new_length is None:
-            self.new_length = 1 if modality == "RGB" or 'RTD' else 5
+            self.new_length = 1 if modality in ["RGB", "RTD"] else 5
         else:
             self.new_length = new_length
         if print_spec:
@@ -112,8 +128,21 @@ class TSN(nn.Module):
 
             self.base_model.last_layer_name = 'fc'
             self.input_size = 224
-            self.input_mean = [0.485, 0.456, 0.406]
-            self.input_std = [0.229, 0.224, 0.225]
+            
+            # 针对不同模态设置专门的归一化参数
+            if self.modality == 'RTD':
+                # RTD模态：RGB + IR + Depth，使用扩展的归一化参数
+                # RGB使用ImageNet统计，IR和Depth使用更通用的归一化
+                self.input_mean = [0.485, 0.456, 0.406,  # RGB
+                                   0.5, 0.5, 0.5,        # IR (转为RGB格式)
+                                   0.5, 0.5, 0.5]        # Depth (转为RGB格式)
+                self.input_std = [0.229, 0.224, 0.225,   # RGB
+                                  0.25, 0.25, 0.25,      # IR
+                                  0.25, 0.25, 0.25]      # Depth
+            else:
+                # 原始RGB模态使用ImageNet归一化
+                self.input_mean = [0.485, 0.456, 0.406]
+                self.input_std = [0.229, 0.224, 0.225]
 
             self.base_model.avgpool = nn.AdaptiveAvgPool2d(1)
 
@@ -261,13 +290,14 @@ class TSN(nn.Module):
         if not no_reshape:
             if self.modality == 'RTD':
                 sample_len = 9
-            if self.modality == 'RGB':
+            elif self.modality == 'RGB':
                 sample_len = 3
-            # sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
-
-            if self.modality == 'RGBDiff':
+            elif self.modality == 'RGBDiff':
                 sample_len = 3 * self.new_length
                 input = self._get_diff(input)
+            else:
+                # For Flow and other modalities
+                sample_len = 2 * self.new_length
 
             base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
         else:
@@ -285,10 +315,30 @@ class TSN(nn.Module):
             else:
                 base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
             if self.modality == 'RTD':
-                output_rgb = self.consensus(base_out[:base_out.shape[0] // 3,])
-                output_ir = self.consensus(base_out[base_out.shape[0] // 3:base_out.shape[0] // 3 *2,])
-                output_depth = self.consensus(base_out [base_out.shape[0] // 3*2 : base_out.shape[0] // 3 *3,])
-                output = (output_rgb + output_ir + output_depth) / 3.0
+                # 分离三种模态的特征
+                batch_size = base_out.shape[0] // 3
+                output_rgb = self.consensus(base_out[:batch_size, ])
+                output_ir = self.consensus(base_out[batch_size:batch_size * 2, ])
+                output_depth = self.consensus(base_out[batch_size * 2:, ])
+                
+                # 多模态融合策略
+                if self.fusion_type == 'avg':
+                    # 简单平均融合
+                    output = (output_rgb + output_ir + output_depth) / 3.0
+                elif self.fusion_type == 'learned':
+                    # 可学习权重融合
+                    weights = torch.softmax(self.fusion_weights, dim=0)
+                    output = weights[0] * output_rgb + weights[1] * output_ir + weights[2] * output_depth
+                elif self.fusion_type == 'attention':
+                    # 注意力机制融合
+                    concat_features = torch.cat([output_rgb, output_ir, output_depth], dim=1)
+                    attention_weights = self.attention_fc(concat_features)  # [batch, 3]
+                    output = (attention_weights[:, 0:1] * output_rgb + 
+                             attention_weights[:, 1:2] * output_ir + 
+                             attention_weights[:, 2:3] * output_depth)
+                else:
+                    # 默认使用平均融合
+                    output = (output_rgb + output_ir + output_depth) / 3.0
             else:
                 output = self.consensus(base_out)
             return output.squeeze(1)
@@ -386,7 +436,7 @@ class TSN(nn.Module):
         return self.input_size * 256 // 224
 
     def get_augmentation(self, flip=True):
-        if self.modality == 'RGB' or 'RTD':
+        if self.modality in ['RGB', 'RTD']:
             if flip:
                 return torchvision.transforms.Compose([GroupMultiScaleCrop(self.input_size, [1, .875, .75, .66]),
                                                        GroupRandomHorizontalFlip(is_flow=False)])
@@ -396,7 +446,7 @@ class TSN(nn.Module):
         elif self.modality == 'Flow':
             return torchvision.transforms.Compose([GroupMultiScaleCrop(self.input_size, [1, .875, .75]),
                                                    GroupRandomHorizontalFlip(is_flow=True)])
-        elif self.modality == 'RGBDiff' or 'IR' or 'Depth':
+        elif self.modality in ['RGBDiff', 'IR', 'Depth']:
             return torchvision.transforms.Compose([GroupMultiScaleCrop(self.input_size, [1, .875, .75]),
                                                    GroupRandomHorizontalFlip(is_flow=False)])
 def resnet(base_model):

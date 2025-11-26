@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Training outputs
+checkpoint/
+log/
+logs/
+*.pth
+*.pth.tar
+*.log
+
+# TensorBoard
+events.out.tfevents.*
+
+# Data
+*.zip
+*.tar.gz
+*.downloading
+MMAR.zip.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Submissions
+submission.csv
+

@@ -77,3 +77,14 @@ parser.add_argument('--temporal_pool', default=False, action="store_true", help=
 parser.add_argument('--non_local', default=False, action="store_true", help='add non local block')
 
 parser.add_argument('--dense_sample', default=False, action="store_true", help='use dense sample for video dataset')
+
+# ========================= Multi-Modal Fusion Configs ==========================
+parser.add_argument('--fusion_type', type=str, default='avg', choices=['avg', 'learned', 'attention'],
+                    help='fusion type for multi-modal: avg (simple average), learned (learnable weights), attention (attention mechanism)')
+
+# ========================= Training Optimization ==========================
+parser.add_argument('--mixup', default=False, action="store_true", help='use mixup data augmentation')
+parser.add_argument('--mixup_alpha', default=0.2, type=float, help='mixup alpha parameter')
+parser.add_argument('--label_smoothing', default=0.0, type=float, help='label smoothing factor')
+parser.add_argument('--warmup_epochs', default=0, type=int, help='number of warmup epochs')
+parser.add_argument('--amp', default=False, action="store_true", help='use automatic mixed precision training')

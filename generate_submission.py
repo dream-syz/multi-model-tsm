@@ -1,5 +1,6 @@
 import argparse
 import csv
+import numpy as np
 import torch
 import torchvision
 from torch.nn import functional as F
@@ -26,7 +27,7 @@ parser.add_argument('--crop_fusion_type', type=str, default='avg')
 parser.add_argument('--gpus', nargs='+', type=int, default=None)
 parser.add_argument('--img_feature_dim', type=int, default=256)
 parser.add_argument('--pretrain', type=str, default='imagenet')
-parser.add_argument('--test_file', type=str, default='test.txt')
+parser.add_argument('--test_file', type=str, default=None)
 args = parser.parse_args()
 
 
@@ -138,11 +139,11 @@ def eval_video(video_data, net, this_test_segments):
         return i, rst.data.cpu().numpy().copy()
 
 for i, data in enumerate(data_loader):
-    rst = eval_video((i+1, data), net, args.test_segments, args.modality)
-    output.append([rst[1]])
+    rst = eval_video((i+1, data), net, args.test_segments)
+    output.append(rst)
 
-video_pred = [np.argmax(x[0], axis=1)[0] for x in output]
-video_labels = [x[1].item() for x in output]
+video_pred = [np.argmax(x[1], axis=1)[0] for x in output]
+video_labels = [x[0] for x in output]
 
 with open(args.csv_file, 'w', newline='') as csvfile:
     csvwriter = csv.writer(csvfile)

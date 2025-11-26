@@ -21,8 +21,8 @@ def return_mmvpr(modality):
         prefix = '{:06d}.png'
     elif modality == 'RTD':
         root_data_rgb =ROOT_DATASET + 'test_set/rgb_data'
-        root_data_depth = ROOT_DATASET + 'test_set/ir_data'
-        root_data_ir = ROOT_DATASET + 'test_set/depth_data'
+        root_data_depth = ROOT_DATASET + 'test_set/depth_data'
+        root_data_ir = ROOT_DATASET + 'test_set/ir_data'
         filename_imglist_train = ROOT_DATASET + "training_set/train_videofolder.txt"
         filename_imglist_val = ROOT_DATASET + "test_set/test_videofolder.txt"
         prefix_ir = '{:06d}.jpg'

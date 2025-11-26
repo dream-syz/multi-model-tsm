@@ -1,0 +1,17 @@
+# Multi-Modal TSM Dependencies
+# Core Deep Learning Framework
+torch>=1.7.0
+torchvision>=0.8.0
+
+# Data Processing
+numpy>=1.19.0
+Pillow>=8.0.0
+
+# Logging and Visualization
+tensorboardX>=2.1
+tensorboard>=2.4.0
+
+# Optional: For better performance
+# opencv-python>=4.5.0  # If you need video processing
+
+

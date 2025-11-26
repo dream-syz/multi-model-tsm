@@ -51,6 +51,9 @@ def main():
 
     check_rootfolders()
 
+    # 获取fusion_type参数（如果存在）
+    fusion_type = getattr(args, 'fusion_type', 'avg')
+    
     model = TSN(num_class, args.num_segments, args.modality,
                 base_model=args.arch,
                 consensus_type=args.consensus_type,
@@ -61,7 +64,8 @@ def main():
                 is_shift=args.shift, shift_div=args.shift_div, shift_place=args.shift_place,
                 fc_lr5=not (args.tune_from and args.dataset in args.tune_from),
                 temporal_pool=args.temporal_pool,
-                non_local=args.non_local)
+                non_local=args.non_local,
+                fusion_type=fusion_type)
 
     crop_size = model.crop_size
     scale_size = model.scale_size
@@ -132,7 +136,7 @@ def main():
     else:
         normalize = IdentityTransform()
 
-    if args.modality in['RGB','RTD']:
+    if args.modality in ['RGB', 'RTD']:
         data_length = 1
     elif args.modality in ['Flow', 'RGBDiff']:
         data_length = 5
