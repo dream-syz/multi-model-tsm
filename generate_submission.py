@@ -59,7 +59,8 @@ net = TSN(num_class, args.test_segments if is_shift else 1, args.modality,
           img_feature_dim=args.img_feature_dim,
           pretrain=args.pretrain,
           is_shift=is_shift, shift_div=shift_div, shift_place=shift_place,
-          non_local='_nl' in args.weights)
+          non_local='_nl' in args.weights,
+          fusion_type='learned')  # 添加fusion_type支持
 
 checkpoint = torch.load(args.weights)
 checkpoint = checkpoint['state_dict']
@@ -133,22 +134,42 @@ def eval_video(video_data, net, this_test_segments):
         rst = net(data_in)
         rst = rst.reshape(batch_size, num_crop, -1).mean(1)
 
-        if args.softmax:
-            rst = F.softmax(rst, dim=1)
+        # 始终使用softmax转换为概率，便于Top-5排序
+        rst = F.softmax(rst, dim=1)
 
         return i, rst.data.cpu().numpy().copy()
 
-for i, data in enumerate(data_loader):
+for i, (data, _) in enumerate(data_loader):  # 解包数据
     rst = eval_video((i+1, data), net, args.test_segments)
     output.append(rst)
+    if (i+1) % 50 == 0:
+        print(f'已处理 {i+1}/{len(data_loader)} 个视频')
 
-video_pred = [np.argmax(x[1], axis=1)[0] for x in output]
-video_labels = [x[0] for x in output]
+# 生成Top-5预测（按任务要求）
+video_pred_top5 = []
+for x in output:
+    scores = x[1][0]  # 获取预测分数
+    # 按分数降序排列，取Top-5
+    top5_indices = np.argsort(scores)[::-1][:5]
+    video_pred_top5.append(top5_indices)
 
+video_ids = [x[0] for x in output]
+
+# 保存为任务要求的格式
 with open(args.csv_file, 'w', newline='') as csvfile:
     csvwriter = csv.writer(csvfile)
-    csvwriter.writerow(['Video', 'Prediction'])
-    for vid_name, pred in zip(video_labels, video_pred):
-        csvwriter.writerow([vid_name, pred])
+    csvwriter.writerow(['video id', 'prediction'])  # 按任务要求的列名
+    for vid_id, pred_top5 in zip(video_ids, video_pred_top5):
+        # Top-5类别用空格分隔
+        pred_str = ' '.join(map(str, pred_top5))
+        csvwriter.writerow([vid_id, pred_str])
 
-print(f'Predictions saved to {args.csv_file}')
+print(f'\n✅ Top-5预测已保存到 {args.csv_file}')
+print(f'格式检查:')
+print(f'  - 总行数: {len(video_ids) + 1} (1行标题 + {len(video_ids)}行数据)')
+print(f'  - 每行包含5个预测类别（用空格分隔）')
+print(f'\n前3行示例:')
+with open(args.csv_file, 'r') as f:
+    for i, line in enumerate(f):
+        if i < 4:
+            print(f'  {line.strip()}')
